@@ -24,6 +24,16 @@ It works for US stocks (`AAPL`, `TSLA`) and UK stocks (`VOD.L`, `LLOY.L`, which 
 - Tap a stock to see details, add your holding, reorder it or remove it.
 - **Settings** lets you change the price source and how often it auto-refreshes.
 
+## Price relay (needed for Yahoo prices)
+
+Yahoo blocks requests straight from web pages, so the app goes through a tiny relay you host free on Cloudflare. The code is in `relay/worker.js`.
+
+1. Sign up free at dash.cloudflare.com
+2. **Workers & Pages → Create → Create Worker**, name it `ticker-relay`, **Deploy**
+3. **Edit code**, replace everything with the contents of `relay/worker.js`, **Deploy**
+4. Copy the worker link (e.g. `https://ticker-relay.yourname.workers.dev`)
+5. In the app: **Settings → Relay link**, paste, **Save**
+
 ## Price sources
 
 - **Yahoo Finance** (default): no key needed, covers US and UK. Requests go through public relays because Yahoo blocks direct browser requests. Only the ticker is sent.

@@ -15,6 +15,7 @@
     view: 'tiles',
     provider: 'yahoo',
     finnhubKey: '',
+    relayUrl: '',
     refreshSec: 60,
     showHoldings: false,
   };
@@ -119,7 +120,10 @@
 
   function friendly(e) {
     const m = e?.message || '';
-    if (/fetch|network|abort|HTTP 5|HTTP 429/i.test(m) || e?.name === 'AbortError') return "Couldn't reach price feed — tap refresh";
+    if (/HTTP 404/.test(m)) return 'Ticker not found';
+    if (/fetch|network|abort|HTTP 5|HTTP 4/i.test(m) || e?.name === 'AbortError') {
+      return state.relayUrl ? "Couldn't reach price feed — tap refresh" : "Couldn't reach price feed — add your relay link in Settings";
+    }
     return m || 'Unavailable';
   }
 
@@ -148,6 +152,15 @@
   try { goodProxy = Number(localStorage.getItem(PROXY_KEY) ?? 1) || 0; } catch (_) { /* ignore */ }
 
   async function yahooFetch(url) {
+    // Your own relay (Settings) is tried first — the public ones are a fallback.
+    const relay = (state.relayUrl || '').trim().replace(/\/+$/, '');
+    if (relay) {
+      try {
+        return await fetchJSON(`${relay}/?url=${encodeURIComponent(url)}`);
+      } catch (e) {
+        if (/HTTP 4/.test(e.message)) throw e; // e.g. ticker not found
+      }
+    }
     const order = [goodProxy, ...PROXIES.keys()].filter((v, i, a) => a.indexOf(v) === i && PROXIES[v]);
     let lastErr;
     for (const i of order) {
@@ -703,10 +716,12 @@
   // ---------- Settings ----------
   function syncKeyField() {
     $('#keyField').hidden = $('#providerSelect').value !== 'finnhub';
+    $('#relayField').hidden = $('#providerSelect').value !== 'yahoo';
   }
   $('#settingsBtn').addEventListener('click', () => {
     $('#providerSelect').value = state.provider;
     $('#finnhubKey').value = state.finnhubKey;
+    $('#relayUrl').value = state.relayUrl || '';
     $('#refreshSelect').value = String(state.refreshSec);
     $('#showHoldings').checked = !!state.showHoldings;
     syncKeyField();
@@ -715,7 +730,8 @@
   $('#providerSelect').addEventListener('change', syncKeyField);
   $('#settingsForm').addEventListener('submit', (e) => {
     if (e.submitter?.value !== 'save') return;
-    const providerChanged = state.provider !== $('#providerSelect').value || state.finnhubKey !== $('#finnhubKey').value.trim();
+    const providerChanged = state.provider !== $('#providerSelect').value || state.finnhubKey !== $('#finnhubKey').value.trim() || state.relayUrl !== $('#relayUrl').value.trim();
+    state.relayUrl = $('#relayUrl').value.trim();
     state.provider = $('#providerSelect').value;
     state.finnhubKey = $('#finnhubKey').value.trim();
     state.refreshSec = Number($('#refreshSelect').value);
