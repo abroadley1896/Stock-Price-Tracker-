@@ -8,6 +8,7 @@
 
   const STORE_KEY = 'tickerwatch.v1';
   const PROXY_KEY = 'tickerwatch.proxy';
+  const DEFAULT_RELAY = 'https://ticker-relay.alex-d2e.workers.dev';
   const DEMO = new URLSearchParams(location.search).has('demo');
 
   const DEFAULT_STATE = {
@@ -122,7 +123,7 @@
     const m = e?.message || '';
     if (/HTTP 404/.test(m)) return 'Ticker not found';
     if (/fetch|network|abort|HTTP 5|HTTP 4/i.test(m) || e?.name === 'AbortError') {
-      return state.relayUrl ? "Couldn't reach price feed — tap refresh" : "Couldn't reach price feed — add your relay link in Settings";
+      return "Couldn't reach price feed — tap refresh";
     }
     return m || 'Unavailable';
   }
@@ -153,7 +154,7 @@
 
   async function yahooFetch(url) {
     // Your own relay (Settings) is tried first — the public ones are a fallback.
-    const relay = (state.relayUrl || '').trim().replace(/\/+$/, '');
+    const relay = (state.relayUrl || DEFAULT_RELAY).trim().replace(/\/+$/, '');
     if (relay) {
       try {
         return await fetchJSON(`${relay}/?url=${encodeURIComponent(url)}`);

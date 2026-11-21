@@ -32,7 +32,7 @@ Yahoo blocks requests straight from web pages, so the app goes through a tiny re
 2. **Workers & Pages → Create → Create Worker**, name it `ticker-relay`, **Deploy**
 3. **Edit code**, replace everything with the contents of `relay/worker.js`, **Deploy**
 4. Copy the worker link (e.g. `https://ticker-relay.yourname.workers.dev`)
-5. In the app: **Settings → Relay link**, paste, **Save**
+5. Put the link in `DEFAULT_RELAY` at the top of `app.js` (or paste it in the app under **Settings → Relay link**)
 
 ## Price sources
 
