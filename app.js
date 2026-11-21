@@ -12,7 +12,7 @@
   const DEMO = new URLSearchParams(location.search).has('demo');
 
   const DEFAULT_STATE = {
-    watchlist: ['TSLA', 'COIN', 'ANT', 'O', 'BHHOF', 'AAPL'].map((symbol) => ({ symbol })),
+    watchlist: [],
     view: 'tiles',
     provider: 'yahoo',
     finnhubKey: '',

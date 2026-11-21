@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
   <header class="top">
@@ -36,7 +36,10 @@
   <main>
     <section id="portfolio" class="portfolio" hidden></section>
     <section id="list" class="list" aria-live="polite"></section>
-    <p class="empty" id="empty" hidden>No stocks yet. Tap <strong>+</strong> to add one.</p>
+    <div class="empty" id="empty" hidden>
+      <p class="empty-title">Your watchlist is empty</p>
+      <p>Tap <strong>+</strong> to add a stock. Search by name (e.g. Tesla) or ticker (e.g. AAPL, or VOD.L for UK shares).</p>
+    </div>
   </main>
 
   <button class="fab" id="addBtn" aria-label="Add stock">
@@ -108,6 +111,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

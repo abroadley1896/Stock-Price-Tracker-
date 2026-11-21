@@ -205,7 +205,8 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-.empty { text-align: center; color: var(--muted); margin-top: 48px; }
+.empty { text-align: center; color: var(--muted); margin: 64px auto 0; max-width: 300px; }
+.empty-title { color: var(--text); font-size: 18px; font-weight: 700; margin-bottom: 4px; }
 
 /* FAB */
 .fab {
