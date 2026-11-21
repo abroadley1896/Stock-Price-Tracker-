@@ -166,9 +166,10 @@
   }
 
   async function yahooQuote(symbol) {
-    // Intraday (5-min) data for the latest session: gives today's open, the
-    // previous close and the chart line, like the iPhone Stocks widget.
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=false`;
+    // Intraday (5-min) data for the latest session, including pre-market and
+    // after-hours trading: gives today's open, previous close, close,
+    // extended-hours price and the chart line.
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=true`;
     const json = await yahooFetch(url);
     const err = json?.chart?.error;
     if (err) throw new Error(err.description || 'Not found');
@@ -182,11 +183,18 @@
     const candles = ts.map((t, i) => ({
       t: t * 1000, o: q.open?.[i], h: q.high?.[i], l: q.low?.[i], c: q.close?.[i],
     })).filter((c) => isNum(c.c));
-    const first = candles[0];
-    const last = candles[candles.length - 1];
 
-    // Market state from trading periods
+    // Regular session window for the day this data covers
     const period = m.currentTradingPeriod || {};
+    const tp = m.tradingPeriods;
+    const regP = (tp && !Array.isArray(tp) ? tp.regular?.[0]?.[0] : Array.isArray(tp) ? tp[0]?.[0] : null) || period.regular || {};
+    const regStart = regP.start ? regP.start * 1000 : -Infinity;
+    const regEnd = regP.end ? regP.end * 1000 : Infinity;
+    const pre = candles.filter((c) => c.t < regStart);
+    const reg = candles.filter((c) => c.t >= regStart && c.t < regEnd);
+    const post = candles.filter((c) => c.t >= regEnd);
+
+    // Market state right now
     const now = Date.now();
     const inRange = (p) => p && p.start && p.end && now >= p.start * 1000 && now < p.end * 1000;
     let marketState = 'closed';
@@ -194,22 +202,34 @@
     else if (inRange(period.pre)) marketState = 'pre';
     else if (inRange(period.post)) marketState = 'post';
 
-    let price = isNum(m.regularMarketPrice) ? m.regularMarketPrice : last?.c;
-    let open = isNum(m.regularMarketOpen) ? m.regularMarketOpen : first ? (isNum(first.o) ? first.o : first.c) : null;
-    const hs = candles.map((c) => c.h).filter(isNum);
-    const ls = candles.map((c) => c.l).filter(isNum);
+    let price = isNum(m.regularMarketPrice) ? m.regularMarketPrice : reg[reg.length - 1]?.c;
+    let open = reg[0] ? (isNum(reg[0].o) ? reg[0].o : reg[0].c) : null;
+    const hs = reg.map((c) => c.h).filter(isNum);
+    const ls = reg.map((c) => c.l).filter(isNum);
     let high = isNum(m.regularMarketDayHigh) ? m.regularMarketDayHigh : hs.length ? Math.max(...hs) : null;
     let low = isNum(m.regularMarketDayLow) ? m.regularMarketDayLow : ls.length ? Math.min(...ls) : null;
     let prevClose = m.chartPreviousClose ?? m.previousClose ?? null;
+
+    // Extended hours: after-hours once the session has closed, pre-market before it opens
+    let extPrice = null;
+    let extLabel = null;
+    let extTime = null;
+    if (post.length && marketState !== 'open') {
+      extPrice = post[post.length - 1].c; extLabel = 'After hours'; extTime = post[post.length - 1].t;
+    } else if (pre.length && !reg.length) {
+      extPrice = pre[pre.length - 1].c; extLabel = 'Pre-market'; extTime = pre[pre.length - 1].t;
+    }
+
     let spark = candles.map((c) => c.c);
-    if (spark.length && isNum(price)) spark.push(price);
+    if (marketState === 'open' && isNum(price) && spark.length) spark.push(price);
+    const sparkReg = reg.length ? [pre.length, pre.length + reg.length - 1 + (marketState === 'open' ? 1 : 0)] : null;
 
     // London prices come in pence (GBp) — convert to pounds internally
     let currency = m.currency || '';
     let pence = false;
     if (currency === 'GBp' || currency === 'GBX') {
       const p = (v) => (isNum(v) ? v / 100 : v);
-      price = p(price); open = p(open); high = p(high); low = p(low); prevClose = p(prevClose);
+      price = p(price); open = p(open); high = p(high); low = p(low); prevClose = p(prevClose); extPrice = p(extPrice);
       spark = spark.map(p);
       currency = 'GBP';
       pence = true;
@@ -217,17 +237,20 @@
 
     const change = isNum(price) && isNum(prevClose) ? price - prevClose : null;
     const changePct = isNum(change) && prevClose ? (change / prevClose) * 100 : null;
+    const extChange = isNum(extPrice) && isNum(price) ? extPrice - price : null;
+    const extChangePct = isNum(extChange) && price ? (extChange / price) * 100 : null;
 
     return {
       symbol: m.symbol || symbol,
       name: m.longName || m.shortName || '',
       exchange: m.fullExchangeName || m.exchangeName || '',
       currency, pence, price, open, high, low, prevClose, change, changePct,
+      extPrice, extLabel, extChange, extChangePct, extTime,
       marketState,
-      sessionDone: marketState !== 'open' && candles.length > 0,
-      time: (m.regularMarketTime || 0) * 1000 || last?.t || now,
+      sessionDone: marketState !== 'open' && reg.length > 0,
+      time: (m.regularMarketTime || 0) * 1000 || reg[reg.length - 1]?.t || now,
       tz,
-      spark,
+      spark, sparkReg,
     };
   }
 
@@ -310,18 +333,30 @@
     let seed = [...symbol].reduce((a, c) => a + c.charCodeAt(0), 0);
     const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
     const prevClose = base[0];
-    const open = prevClose * (1 + (rnd() - 0.5) * 0.012);
-    const drift = (rnd() - 0.5) * 0.0025;
-    const spark = [open];
-    for (let i = 1; i < 78; i++) spark.push(spark[i - 1] * (1 + drift + (rnd() - 0.5) * 0.006));
-    const price = spark[77];
     const isUK = symbol.endsWith('.L');
+    const preN = isUK ? 0 : 66, regN = isUK ? 102 : 78, postN = isUK ? 0 : 48;
+    const pre = [];
+    let v = prevClose;
+    for (let i = 0; i < preN; i++) pre.push((v *= 1 + (rnd() - 0.5) * 0.002));
+    const open = (pre[preN - 1] ?? prevClose) * (1 + (rnd() - 0.5) * 0.006);
+    const drift = (rnd() - 0.5) * 0.0025;
+    const reg = [open];
+    for (let i = 1; i < regN; i++) reg.push(reg[i - 1] * (1 + drift + (rnd() - 0.5) * 0.006));
+    const price = reg[regN - 1];
+    const post = [];
+    v = price;
+    for (let i = 0; i < postN; i++) post.push((v *= 1 + (rnd() - 0.5) * 0.002));
+    const spark = [...pre, ...reg, ...post];
+    const extPrice = postN ? post[postN - 1] : null;
     return {
       symbol, name: base[1], exchange: base[2], currency: base[3], pence: isUK,
       price, open, prevClose,
       high: Math.max(price, open) * 1.006, low: Math.min(price, open) * 0.994,
       change: price - prevClose, changePct: ((price - prevClose) / prevClose) * 100,
-      marketState: isUK ? 'closed' : 'open', sessionDone: isUK,
+      marketState: isUK ? 'closed' : 'post', sessionDone: true,
+      extPrice, extLabel: extPrice ? 'After hours' : null, extChange: extPrice ? extPrice - price : null,
+      extChangePct: extPrice ? ((extPrice - price) / price) * 100 : null, extTime: Date.now(),
+      sparkReg: preN || postN ? [preN, preN + regN - 1] : null,
       time: Date.now(), tz: isUK ? 'Europe/London' : 'America/New_York', spark,
     };
   }
@@ -374,7 +409,7 @@
   const ICON_LIST = '<svg viewBox="0 0 24 24" width="20" height="20"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/></g></svg>';
   const STATE_LABEL = { open: 'Market open', pre: 'Pre-market', post: 'After hours', closed: 'Market closed' };
 
-  function sparkSVG(data, cls, h = 34, base = null, klass = '') {
+  function sparkSVG(data, cls, h = 34, base = null, klass = '', segReg = null) {
     if (!data || data.length < 2) return klass ? `<div class="${klass} nochart"></div>` : '';
     const w = 300;
     const vals = isNum(base) ? [...data, base] : data;
@@ -384,13 +419,22 @@
     const pts = data.map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${y(v)}`);
     const color = cls === 'up' ? 'var(--up)' : cls === 'down' ? 'var(--down)' : 'var(--flat)';
     const id = `g${Math.random().toString(36).slice(2, 8)}`;
+    const line = (a, b, stroke, op = 1) => (b > a ? `<polyline points="${pts.slice(a, b + 1).join(' ')}" fill="none" stroke="${stroke}" stroke-opacity="${op}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>` : '');
+    const [rs, re] = segReg && segReg[1] > segReg[0] ? [segReg[0], Math.min(segReg[1], pts.length - 1)] : [0, pts.length - 1];
+    const x = (i) => ((i / (data.length - 1)) * w).toFixed(1);
     const baseLine = isNum(base) ? `<line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--muted)" stroke-opacity=".6" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : '';
     return `<svg class="${klass || (h > 50 ? 'detail-spark' : 'spark')}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".25"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
       ${baseLine}
-      <polygon points="0,${h} ${pts.join(' ')} ${w},${h}" fill="url(#${id})"/>
-      <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+      <polygon points="${x(rs)},${h} ${pts.slice(rs, re + 1).join(' ')} ${x(re)},${h}" fill="url(#${id})"/>
+      ${line(0, rs, 'var(--muted)', 0.55)}${line(re, pts.length - 1, 'var(--muted)', 0.55)}${line(rs, re, color)}
     </svg>`;
+  }
+
+  function extHTML(q, klass) {
+    if (!isNum(q.extPrice)) return '';
+    const d = dirClass(q.extChange);
+    return `<div class="${klass}"><span>${q.extLabel === 'Pre-market' ? 'Pre-mkt' : 'After hrs'}</span><b class="num ${d}">${px(q.extPrice, q)} <small>${pct(q.extChangePct)}</small></b></div>`;
   }
 
   function priceLabel(q) {
@@ -435,9 +479,10 @@
           <div class="price-label">${esc(priceLabel(q))}</div>
           <div class="price num">${px(q.price, q)}</div>
           <div class="chg num ${d}">${arrow(q.change)} ${px(Math.abs(q.change ?? NaN), q, { dp: 2 })} (${pct(q.changePct)})</div>
+          ${isNum(q.extPrice) ? `<div class="ext-line num">${esc(q.extLabel)} <b class="${dirClass(q.extChange)}">${px(q.extPrice, q)} (${pct(q.extChangePct)})</b></div>` : ''}
         </div>
       </div>
-      ${sparkSVG(q.spark, d, 34, q.prevClose)}
+      ${sparkSVG(q.spark, d, 34, q.prevClose, '', q.sparkReg)}
       <div class="stats">
         <div class="stat"><span>Open</span><b class="num">${px(q.open, q)}</b></div>
         <div class="stat"><span>Prev close</span><b class="num">${px(q.prevClose, q)}</b></div>
@@ -471,9 +516,10 @@
         <span class="status"><i class="dot ${q.marketState}"></i>${{ open: 'Live', pre: 'Pre-mkt', post: 'After hrs', closed: 'Closed' }[q.marketState]}${q.stale ? ' · offline' : ''}</span>
         <span class="num ${d}">${isNum(q.change) ? (q.change >= 0 ? '+' : '−') + px(Math.abs(q.change), q, { dp: 2 }) : ''}</span>
       </div>
-      ${sparkSVG(q.spark, d, 60, q.prevClose, 'tile-chart')}
+      ${sparkSVG(q.spark, d, 60, q.prevClose, 'tile-chart', q.sparkReg)}
       <div class="tile-oc"><span>Open</span><b class="num">${px(q.open, q)}</b></div>
       <div class="tile-oc"><span>${closeLabel}</span><b class="num">${px(closeVal, q)}</b></div>
+      ${extHTML(q, 'tile-oc ext')}
     </button>`;
   }
 
@@ -541,8 +587,9 @@
         <div class="price-label" style="margin-top:12px">${esc(priceLabel(q))}</div>
         <div class="detail-price num">${px(q.price, q)}</div>
         <div class="chg num ${d}">${arrow(q.change)} ${px(Math.abs(q.change ?? NaN), q, { dp: 2 })} (${pct(q.changePct)}) today</div>
-        ${sparkSVG(q.spark, d, 90, q.prevClose)}
-        ${q.spark ? '<p class="hint" style="margin-top:-6px">Latest session · dashed line = previous close</p>' : ''}
+        ${isNum(q.extPrice) ? `<div class="ext-line num" style="text-align:left">${esc(q.extLabel)}: <b class="${dirClass(q.extChange)}">${px(q.extPrice, q)} ${arrow(q.extChange)} ${px(Math.abs(q.extChange), q, { dp: 2 })} (${pct(q.extChangePct)})</b>${q.extTime ? ' · ' + timeStr(q.extTime, q.tz) : ''}</div>` : ''}
+        ${sparkSVG(q.spark, d, 90, q.prevClose, '', q.sparkReg)}
+        ${q.spark ? `<p class="hint" style="margin-top:-6px">Latest session · dashed line = previous close${q.sparkReg ? ' · grey = pre-market / after hours' : ''}</p>` : ''}
         <div class="detail-grid">
           <div class="stat"><span>Open</span><b class="num">${px(q.open, q)}</b></div>
           <div class="stat"><span>${q.sessionDone ? 'Close' : 'Current'}</span><b class="num">${px(q.price, q)}</b></div>

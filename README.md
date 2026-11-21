@@ -3,6 +3,7 @@
 A simple stock watchlist for your phone. Each stock shows:
 
 - **Price**: live while the market is open, the **close** price once it shuts
+- **After-hours / pre-market price** and % change (US stocks, Yahoo source)
 - **Open**, **Prev close**, **High**, **Low**
 - Market status: pre-market / open / after hours / closed
 - Today's chart with a dashed previous-close line, like the iPhone Stocks widget

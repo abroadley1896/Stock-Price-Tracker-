@@ -101,6 +101,11 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 .tile-oc span { color: var(--muted); }
 .tile-oc b { font-weight: 600; }
 .tile-oc + .tile-oc { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 2px; }
+.tile-oc span { white-space: nowrap; }
+.tile-oc.ext b { text-align: right; }
+.tile-oc.ext b small { display: block; font-size: 11px; font-weight: 600; }
+.ext-line { font-size: 12px; color: var(--muted); margin-top: 4px; text-align: right; }
+.ext-line b { font-weight: 600; }
 .tile-msg { color: var(--muted); font-size: 12px; }
 
 /* Portfolio */
