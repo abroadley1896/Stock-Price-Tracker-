@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ticker Watch</title>
+  <meta name="description" content="Simple stock watchlist: live price, open, close, high and low.">
+  <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Ticker Watch">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Watchlist</h1>
+      <p class="updated" id="updated">Loading…</p>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="refreshBtn" aria-label="Refresh prices">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="portfolio" class="portfolio" hidden></section>
+    <section id="list" class="list" aria-live="polite"></section>
+    <p class="empty" id="empty" hidden>No stocks yet. Tap <strong>+</strong> to add one.</p>
+  </main>
+
+  <button class="fab" id="addBtn" aria-label="Add stock">
+    <svg viewBox="0 0 24 24" width="26" height="26"><path stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <!-- Add stock sheet -->
+  <dialog class="sheet" id="addSheet">
+    <form method="dialog" class="sheet-inner" id="addForm">
+      <div class="sheet-head">
+        <h2>Add stock</h2>
+        <button class="text-btn" value="cancel" formnovalidate>Close</button>
+      </div>
+      <input id="searchInput" type="search" autocomplete="off" autocapitalize="characters" spellcheck="false"
+             placeholder="Search name or ticker, e.g. Tesla or VOD.L">
+      <p class="hint">UK shares end in <strong>.L</strong> (e.g. LLOY.L). US shares are just the ticker (e.g. AAPL).</p>
+      <ul class="results" id="results"></ul>
+    </form>
+  </dialog>
+
+  <!-- Detail sheet -->
+  <dialog class="sheet" id="detailSheet">
+    <div class="sheet-inner" id="detailBody"></div>
+  </dialog>
+
+  <!-- Settings sheet -->
+  <dialog class="sheet" id="settingsSheet">
+    <form method="dialog" class="sheet-inner" id="settingsForm">
+      <div class="sheet-head">
+        <h2>Settings</h2>
+        <button class="text-btn" value="cancel" formnovalidate>Close</button>
+      </div>
+
+      <label class="field">
+        <span>Price source</span>
+        <select id="providerSelect">
+          <option value="yahoo">Yahoo Finance (no key, US + UK)</option>
+          <option value="finnhub">Finnhub (free key, US only)</option>
+        </select>
+      </label>
+
+      <label class="field" id="keyField">
+        <span>Finnhub API key</span>
+        <input id="finnhubKey" type="text" autocomplete="off" spellcheck="false" placeholder="Paste key from finnhub.io">
+      </label>
+
+      <label class="field">
+        <span>Auto-refresh</span>
+        <select id="refreshSelect">
+          <option value="30">Every 30 seconds</option>
+          <option value="60">Every minute</option>
+          <option value="300">Every 5 minutes</option>
+          <option value="0">Off</option>
+        </select>
+      </label>
+
+      <label class="field check">
+        <input id="showHoldings" type="checkbox">
+        <span>Show my holdings (shares &amp; P/L)</span>
+      </label>
+
+      <button class="primary" value="save" id="saveSettings">Save</button>
+      <p class="hint small">Prices may be delayed up to 15 minutes depending on the exchange. Not financial advice.</p>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
