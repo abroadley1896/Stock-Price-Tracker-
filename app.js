@@ -11,11 +11,8 @@
   const DEMO = new URLSearchParams(location.search).has('demo');
 
   const DEFAULT_STATE = {
-    watchlist: [
-      { symbol: 'AAPL' },
-      { symbol: 'TSLA' },
-      { symbol: 'VOD.L' },
-    ],
+    watchlist: ['TSLA', 'COIN', 'ANT', 'O', 'BHHOF', 'AAPL'].map((symbol) => ({ symbol })),
+    view: 'tiles',
     provider: 'yahoo',
     finnhubKey: '',
     refreshSec: 60,
@@ -38,14 +35,8 @@
   if (DEMO) {
     state = {
       ...structuredClone(DEFAULT_STATE),
-      watchlist: [
-        { symbol: 'AAPL', shares: 4, avgCost: 182.5 },
-        { symbol: 'TSLA' },
-        { symbol: 'NVDA', shares: 10, avgCost: 96.2 },
-        { symbol: 'VOD.L', shares: 500, avgCost: 0.71 },
-        { symbol: 'LLOY.L' },
-      ],
-      showHoldings: true,
+      watchlist: ['TSLA', 'COIN', 'O', 'AAPL', 'VOD.L', 'LLOY.L'].map((symbol) => ({ symbol })),
+      view: new URLSearchParams(location.search).get('view') || 'tiles',
     };
   }
 
@@ -175,7 +166,9 @@
   }
 
   async function yahooQuote(symbol) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d&includePrePost=false`;
+    // Intraday (5-min) data for the latest session: gives today's open, the
+    // previous close and the chart line, like the iPhone Stocks widget.
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m&includePrePost=false`;
     const json = await yahooFetch(url);
     const err = json?.chart?.error;
     if (err) throw new Error(err.description || 'Not found');
@@ -186,42 +179,32 @@
     const ts = r.timestamp || [];
     const tz = m.exchangeTimezoneName || 'UTC';
 
-    // Daily candles that have a close
     const candles = ts.map((t, i) => ({
       t: t * 1000, o: q.open?.[i], h: q.high?.[i], l: q.low?.[i], c: q.close?.[i],
     })).filter((c) => isNum(c.c));
-
-    const period = m.currentTradingPeriod || {};
-    const reg = period.regular || {};
-    const now = Date.now();
-    const tradingDayKey = reg.start ? dateKey(reg.start * 1000, tz) : dateKey(now, tz);
-
-    let todayCandle = null;
-    let prevCandle = null;
+    const first = candles[0];
     const last = candles[candles.length - 1];
-    if (last && dateKey(last.t, tz) === tradingDayKey) {
-      todayCandle = last;
-      prevCandle = candles[candles.length - 2] || null;
-    } else {
-      prevCandle = last || null; // today's session hasn't started yet
-    }
 
     // Market state from trading periods
+    const period = m.currentTradingPeriod || {};
+    const now = Date.now();
     const inRange = (p) => p && p.start && p.end && now >= p.start * 1000 && now < p.end * 1000;
     let marketState = 'closed';
-    if (inRange(reg)) marketState = 'open';
+    if (inRange(period.regular)) marketState = 'open';
     else if (inRange(period.pre)) marketState = 'pre';
     else if (inRange(period.post)) marketState = 'post';
 
     let price = isNum(m.regularMarketPrice) ? m.regularMarketPrice : last?.c;
-    let open = todayCandle?.o ?? null;
-    let high = isNum(m.regularMarketDayHigh) && todayCandle ? m.regularMarketDayHigh : todayCandle?.h ?? null;
-    let low = isNum(m.regularMarketDayLow) && todayCandle ? m.regularMarketDayLow : todayCandle?.l ?? null;
-    let prevClose = prevCandle?.c ?? m.previousClose ?? m.chartPreviousClose ?? null;
+    let open = isNum(m.regularMarketOpen) ? m.regularMarketOpen : first ? (isNum(first.o) ? first.o : first.c) : null;
+    const hs = candles.map((c) => c.h).filter(isNum);
+    const ls = candles.map((c) => c.l).filter(isNum);
+    let high = isNum(m.regularMarketDayHigh) ? m.regularMarketDayHigh : hs.length ? Math.max(...hs) : null;
+    let low = isNum(m.regularMarketDayLow) ? m.regularMarketDayLow : ls.length ? Math.min(...ls) : null;
+    let prevClose = m.chartPreviousClose ?? m.previousClose ?? null;
     let spark = candles.map((c) => c.c);
-    if (todayCandle && isNum(price)) spark[spark.length - 1] = price;
+    if (spark.length && isNum(price)) spark.push(price);
 
-    // London prices come in pence (GBp) — convert to pounds
+    // London prices come in pence (GBp) — convert to pounds internally
     let currency = m.currency || '';
     let pence = false;
     if (currency === 'GBp' || currency === 'GBX') {
@@ -241,8 +224,8 @@
       exchange: m.fullExchangeName || m.exchangeName || '',
       currency, pence, price, open, high, low, prevClose, change, changePct,
       marketState,
-      sessionDone: marketState !== 'open' && !!todayCandle,
-      time: (m.regularMarketTime || 0) * 1000 || now,
+      sessionDone: marketState !== 'open' && candles.length > 0,
+      time: (m.regularMarketTime || 0) * 1000 || last?.t || now,
       tz,
       spark,
     };
@@ -323,15 +306,15 @@
 
   // ---------- Demo data (?demo) ----------
   function demoQuote(symbol) {
-    const base = { AAPL: [231.4, 'Apple Inc.', 'NasdaqGS', 'USD'], TSLA: [342.1, 'Tesla, Inc.', 'NasdaqGS', 'USD'], NVDA: [141.9, 'NVIDIA Corporation', 'NasdaqGS', 'USD'], 'VOD.L': [0.7184, 'Vodafone Group Plc', 'LSE', 'GBP'], 'LLOY.L': [0.5512, 'Lloyds Banking Group plc', 'LSE', 'GBP'] }[symbol] || [100, symbol, 'NYSE', 'USD'];
+    const base = { AAPL: [231.4, 'Apple Inc.', 'NasdaqGS', 'USD'], TSLA: [342.1, 'Tesla, Inc.', 'NasdaqGS', 'USD'], NVDA: [141.9, 'NVIDIA Corporation', 'NasdaqGS', 'USD'], COIN: [104.2, 'Coinbase Global, Inc.', 'NasdaqGS', 'USD'], O: [57.6, 'Realty Income Corporation', 'NYSE', 'USD'], 'VOD.L': [0.7184, 'Vodafone Group Plc', 'LSE', 'GBP'], 'LLOY.L': [0.5512, 'Lloyds Banking Group plc', 'LSE', 'GBP'] }[symbol] || [100, symbol, 'NYSE', 'USD'];
     let seed = [...symbol].reduce((a, c) => a + c.charCodeAt(0), 0);
     const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
-    const spark = [];
-    let p = base[0] * (0.92 + rnd() * 0.08);
-    for (let i = 0; i < 22; i++) { p *= 1 + (rnd() - 0.47) * 0.03; spark.push(p); }
-    const price = spark[21];
-    const prevClose = spark[20];
-    const open = prevClose * (1 + (rnd() - 0.5) * 0.01);
+    const prevClose = base[0];
+    const open = prevClose * (1 + (rnd() - 0.5) * 0.012);
+    const drift = (rnd() - 0.5) * 0.0025;
+    const spark = [open];
+    for (let i = 1; i < 78; i++) spark.push(spark[i - 1] * (1 + drift + (rnd() - 0.5) * 0.006));
+    const price = spark[77];
     const isUK = symbol.endsWith('.L');
     return {
       symbol, name: base[1], exchange: base[2], currency: base[3], pence: isUK,
@@ -387,18 +370,24 @@
   });
 
   // ---------- Rendering ----------
+  const ICON_GRID = '<svg viewBox="0 0 24 24" width="20" height="20"><g fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></g></svg>';
+  const ICON_LIST = '<svg viewBox="0 0 24 24" width="20" height="20"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/></g></svg>';
   const STATE_LABEL = { open: 'Market open', pre: 'Pre-market', post: 'After hours', closed: 'Market closed' };
 
-  function sparkSVG(data, cls, h = 34) {
-    if (!data || data.length < 2) return '';
+  function sparkSVG(data, cls, h = 34, base = null, klass = '') {
+    if (!data || data.length < 2) return klass ? `<div class="${klass} nochart"></div>` : '';
     const w = 300;
-    const min = Math.min(...data), max = Math.max(...data);
+    const vals = isNum(base) ? [...data, base] : data;
+    const min = Math.min(...vals), max = Math.max(...vals);
     const span = max - min || 1;
-    const pts = data.map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - 3 - ((v - min) / span) * (h - 6)).toFixed(1)}`);
+    const y = (v) => (h - 3 - ((v - min) / span) * (h - 6)).toFixed(1);
+    const pts = data.map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${y(v)}`);
     const color = cls === 'up' ? 'var(--up)' : cls === 'down' ? 'var(--down)' : 'var(--flat)';
     const id = `g${Math.random().toString(36).slice(2, 8)}`;
-    return `<svg class="${h > 50 ? 'detail-spark' : 'spark'}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    const baseLine = isNum(base) ? `<line x1="0" x2="${w}" y1="${y(base)}" y2="${y(base)}" stroke="var(--muted)" stroke-opacity=".6" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : '';
+    return `<svg class="${klass || (h > 50 ? 'detail-spark' : 'spark')}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".25"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+      ${baseLine}
       <polygon points="0,${h} ${pts.join(' ')} ${w},${h}" fill="url(#${id})"/>
       <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>`;
@@ -448,7 +437,7 @@
           <div class="chg num ${d}">${arrow(q.change)} ${px(Math.abs(q.change ?? NaN), q, { dp: 2 })} (${pct(q.changePct)})</div>
         </div>
       </div>
-      ${sparkSVG(q.spark, d)}
+      ${sparkSVG(q.spark, d, 34, q.prevClose)}
       <div class="stats">
         <div class="stat"><span>Open</span><b class="num">${px(q.open, q)}</b></div>
         <div class="stat"><span>Prev close</span><b class="num">${px(q.prevClose, q)}</b></div>
@@ -457,6 +446,34 @@
       </div>
       ${h ? `<div class="holding num"><span>${item.shares} shares · ${money(h.value, h.currency)}</span>
         ${isNum(h.pl) ? `<span class="${dirClass(h.pl)}">P/L ${money(h.pl, h.currency, { sign: true })} (${pct(h.plPct)})</span>` : ''}</div>` : ''}
+    </button>`;
+  }
+
+  function tileHTML(item) {
+    const q = quotes.get(item.symbol);
+    const sym = esc(item.symbol);
+    if (!q || q.error) {
+      return `<button class="tile${q ? ' error' : ''}" data-sym="${sym}">
+        <div class="tile-top"><span class="ticker">${sym}</span><span class="price">${q ? '—' : '<span class="skeleton"></span>'}</span></div>
+        <div class="tile-chart nochart"></div>
+        <div class="tile-msg">${q ? esc(q.error) : 'Loading…'}</div>
+      </button>`;
+    }
+    const d = dirClass(q.change);
+    const closeLabel = q.sessionDone ? 'Close' : 'Prev close';
+    const closeVal = q.sessionDone ? q.price : q.prevClose;
+    return `<button class="tile" data-sym="${sym}">
+      <div class="tile-top">
+        <span class="ticker"><span class="${d}">${arrow(q.change)}</span> ${esc(q.symbol)}</span>
+        <span class="price num">${px(q.price, q)}</span>
+      </div>
+      <div class="tile-sub">
+        <span class="status"><i class="dot ${q.marketState}"></i>${{ open: 'Live', pre: 'Pre-mkt', post: 'After hrs', closed: 'Closed' }[q.marketState]}${q.stale ? ' · offline' : ''}</span>
+        <span class="num ${d}">${isNum(q.change) ? (q.change >= 0 ? '+' : '−') + px(Math.abs(q.change), q, { dp: 2 }) : ''}</span>
+      </div>
+      ${sparkSVG(q.spark, d, 60, q.prevClose, 'tile-chart')}
+      <div class="tile-oc"><span>Open</span><b class="num">${px(q.open, q)}</b></div>
+      <div class="tile-oc"><span>${closeLabel}</span><b class="num">${px(closeVal, q)}</b></div>
     </button>`;
   }
 
@@ -486,7 +503,11 @@
   }
 
   function render() {
-    $('#list').innerHTML = state.watchlist.map(cardHTML).join('');
+    const tiles = state.view !== 'list';
+    $('#list').className = tiles ? 'list tiles' : 'list';
+    $('#list').innerHTML = state.watchlist.map(tiles ? tileHTML : cardHTML).join('');
+    $('#viewBtn').innerHTML = tiles ? ICON_LIST : ICON_GRID;
+    $('#viewBtn').setAttribute('aria-label', tiles ? 'Show detailed list' : 'Show tiles');
     $('#empty').hidden = state.watchlist.length > 0;
     renderPortfolio();
     const upd = $('#updated');
@@ -497,7 +518,7 @@
 
   // ---------- Card tap → detail ----------
   $('#list').addEventListener('click', (e) => {
-    const card = e.target.closest('.card');
+    const card = e.target.closest('.card, .tile');
     if (card) openDetail(card.dataset.sym);
   });
 
@@ -520,8 +541,8 @@
         <div class="price-label" style="margin-top:12px">${esc(priceLabel(q))}</div>
         <div class="detail-price num">${px(q.price, q)}</div>
         <div class="chg num ${d}">${arrow(q.change)} ${px(Math.abs(q.change ?? NaN), q, { dp: 2 })} (${pct(q.changePct)}) today</div>
-        ${sparkSVG(q.spark, d, 90)}
-        ${q.spark ? '<p class="hint" style="margin-top:-6px">Last month, daily closes</p>' : ''}
+        ${sparkSVG(q.spark, d, 90, q.prevClose)}
+        ${q.spark ? '<p class="hint" style="margin-top:-6px">Latest session · dashed line = previous close</p>' : ''}
         <div class="detail-grid">
           <div class="stat"><span>Open</span><b class="num">${px(q.open, q)}</b></div>
           <div class="stat"><span>${q.sessionDone ? 'Close' : 'Current'}</span><b class="num">${px(q.price, q)}</b></div>
@@ -660,6 +681,11 @@
   });
 
   $('#refreshBtn').addEventListener('click', refreshAll);
+  $('#viewBtn').addEventListener('click', () => {
+    state.view = state.view === 'list' ? 'tiles' : 'list';
+    saveState();
+    render();
+  });
 
   // Close sheets when tapping the backdrop
   document.querySelectorAll('dialog').forEach((dlg) => {

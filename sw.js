@@ -1,5 +1,5 @@
 // Caches the app shell so it opens instantly / offline. Prices always come from the network.
-const CACHE = 'tickerwatch-v1';
+const CACHE = 'tickerwatch-v2';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

@@ -5,7 +5,8 @@ A simple stock watchlist for your phone. Each stock shows:
 - **Price**: live while the market is open, the **close** price once it shuts
 - **Open**, **Prev close**, **High**, **Low**
 - Market status: pre-market / open / after hours / closed
-- A 1-month mini chart
+- Today's chart with a dashed previous-close line, like the iPhone Stocks widget
+- Two views: **tiles** (widget-style grid) or a **detailed list**. Toggle with the button top-right.
 - Optional: your shares + average price paid → value, today's change and P/L
 
 It works for US stocks (`AAPL`, `TSLA`) and UK stocks (`VOD.L`, `LLOY.L`, which show in pence). Everything is saved in your browser and there's no login.
