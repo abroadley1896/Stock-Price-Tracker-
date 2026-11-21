@@ -11,8 +11,6 @@ A simple stock watchlist for your phone. Each stock shows:
 
 It works for US stocks (`AAPL`, `TSLA`) and UK stocks (`VOD.L`, `LLOY.L`, which show in pence). Everything is saved in your browser and there's no login.
 
-![screenshot](screenshot.png)
-
 ## Put it on your phone
 
 1. On GitHub: **Settings → Pages**. Set Source to *Deploy from a branch*, pick this branch and `/ (root)`, then Save.
