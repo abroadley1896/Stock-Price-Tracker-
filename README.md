@@ -18,6 +18,10 @@ It works for US stocks (`AAPL`, `TSLA`) and UK stocks (`VOD.L`, `LLOY.L`, which 
 2. After a minute it's live at `https://<your-username>.github.io/Stock-Price-Tracker-/`.
 3. Open that link in Safari, tap **Share → Add to Home Screen**. It opens full-screen like an app.
 
+## Home screen widget (iPhone)
+
+Web apps can't make iPhone widgets, so there's a script for the free **Scriptable** app in `widget/scriptable-widget.js`. It shows price, open, close and after-hours. Setup steps are at the top of the file.
+
 ## Using it
 
 - **+** adds a stock. Search by name or type the ticker.
