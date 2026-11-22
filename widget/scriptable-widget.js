@@ -1,20 +1,19 @@
-// Ticker Watch — home screen widget for the Scriptable app (iOS).
-// Shows price, open, close / previous close and after-hours for your stocks.
+// Ticker Watch — home screen widget for the Scriptable app (iOS).   [TICKER_WATCH_WIDGET]
+// One stock per widget. Shows price, open, close / previous close and after-hours.
+//   Small:  the stock
+//   Medium: the stock + latest headlines (tap a headline to read it)
+//   Large:  the stock with a bigger chart + more headlines
 //
-// Setup:
-// 1. Install "Scriptable" from the App Store (free).
-// 2. Open it, tap +, paste this whole script, name it "Ticker Watch".
-// 3. Long-press home screen → Edit → Add Widget → Scriptable → pick a size.
-// 4. Long-press the new widget → Edit Widget:
-//      Script: Ticker Watch
-//      Parameter: your tickers, e.g.  ANT   (small)  or  TSLA,ANT  (medium)  or  TSLA,ANT,O,AAPL  (large)
+// Normally you don't paste this file — paste widget/loader.js instead, which
+// downloads the latest version of this file automatically.
 //
-// Small shows 1 stock, medium 2, large 4. Tapping the widget opens the full app.
+// Widget setup: long-press widget → Edit Widget → Script: Ticker Watch,
+// Parameter: one ticker, e.g. ANT (UK shares end in .L, e.g. VOD.L).
 // iOS decides exactly when widgets refresh — usually every 5–15 minutes.
 
 const RELAY = 'https://ticker-relay.alex-d2e.workers.dev';
 const APP_URL = 'https://abroadley1896.github.io/Stock-Price-Tracker-/';
-const DEFAULT_TICKERS = 'AAPL,TSLA,MSFT,NVDA';
+const DEFAULT_TICKER = 'AAPL';
 
 const C = {
   bgTop: new Color('#232327'),
@@ -99,6 +98,28 @@ async function getQuote(symbol) {
     spark: candles.map((c) => c.c / div),
     regRange: reg.length ? [pre.length, pre.length + reg.length - 1] : null,
   };
+}
+
+async function getNews(symbol, count) {
+  const yahoo = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=0&newsCount=${count + 4}&enableFuzzyQuery=false`;
+  const req = new Request(`${RELAY}/?url=${encodeURIComponent(yahoo)}`);
+  req.timeoutInterval = 20;
+  const json = await req.loadJSON();
+  let news = (json && json.news) || [];
+  // prefer stories Yahoo tags with this ticker
+  const tagged = news.filter((n) => (n.relatedTickers || []).map((t) => t.toUpperCase()).includes(symbol.toUpperCase()));
+  if (tagged.length >= Math.min(2, count)) news = tagged;
+  return news.filter((n) => n.title && n.link).slice(0, count).map((n) => ({
+    title: n.title, link: n.link, source: n.publisher || '', time: (n.providerPublishTime || 0) * 1000,
+  }));
+}
+
+function ago(ms) {
+  if (!ms) return '';
+  const m = Math.max(1, Math.round((Date.now() - ms) / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;
 }
 
 // ---------- Formatting ----------
@@ -222,14 +243,44 @@ function addTile(parent, sym, q, err, w, h) {
   if (isNum(q.ext)) row(tile, q.extLabel, money(q.ext, q), dirColor(q.ext - q.price), pct(q.extPct), fs);
 }
 
-async function build() {
-  const family = config.widgetFamily || 'small';
-  const count = { small: 1, medium: 2, large: 4 }[family] || 2;
-  const tickers = String(args.widgetParameter || DEFAULT_TICKERS)
-    .split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean).slice(0, count);
+// Headlines, each one taps through to its article
+function addNews(parent, news, w, h, fs, err) {
+  const col = parent.addStack();
+  col.layoutVertically();
+  col.size = new Size(w, h);
+  if (!news || !news.length) {
+    col.addSpacer();
+    text(col, err ? 'News unavailable' : 'No recent news', fs, C.muted);
+    col.addSpacer();
+    return;
+  }
+  const itemH = (fs - 2) * 1.25 + fs * 1.25 * 2 + 6; // source line + 2 title lines + gap
+  const n = Math.max(1, Math.min(news.length, Math.floor((h + 6) / itemH)));
+  news.slice(0, n).forEach((a, i) => {
+    if (i > 0) col.addSpacer(6);
+    const item = col.addStack();
+    item.layoutVertically();
+    item.url = a.link;
+    text(item, [a.source, ago(a.time)].filter(Boolean).join(' · '), fs - 2, C.muted);
+    const t = item.addText(a.title);
+    t.font = Font.semiboldSystemFont(fs);
+    t.textColor = C.text;
+    t.lineLimit = 2;
+  });
+  col.addSpacer();
+}
 
-  const results = await Promise.all(tickers.map((s) =>
-    getQuote(s).then((q) => ({ s, q })).catch((e) => ({ s, err: /404|not found/i.test(String(e)) ? 'Ticker not found' : 'No connection' }))));
+async function build() {
+  const family = config.widgetFamily || 'medium';
+  const symbol = String(args.widgetParameter || DEFAULT_TICKER).split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter(Boolean)[0] || DEFAULT_TICKER;
+  const wantNews = family === 'medium' || family === 'large' || family === 'extraLarge';
+
+  const [quote, news] = await Promise.all([
+    getQuote(symbol).then((q) => ({ q })).catch((e) => ({ err: /404|not found/i.test(String(e)) ? 'Ticker not found' : 'No connection' })),
+    wantNews ? getNews(symbol, 6).then((n) => ({ n })).catch(() => ({ err: true })) : Promise.resolve({ n: [] }),
+  ]);
+
+  if (quote.err === 'Ticker not found') news.n = [];
 
   const w = new ListWidget();
   const g = new LinearGradient();
@@ -240,26 +291,30 @@ async function build() {
   w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
   w.setPadding(PAD, PAD, PAD, PAD);
 
-  const size = widgetSize(family);
-  const gap = 14;
-  const cols = family === 'small' ? 1 : 2;
-  const rowsN = family === 'large' ? 2 : 1;
-  const tileW = Math.floor((size.width - PAD * 2 - gap * (cols - 1)) / cols) - 1;
-  const tileH = Math.floor((size.height - PAD * 2 - gap * (rowsN - 1)) / rowsN) - 1;
-  for (let r = 0; r < rowsN; r++) {
+  const size = widgetSize(family === 'extraLarge' ? 'large' : family);
+  const innerW = size.width - PAD * 2 - 1;
+  const innerH = size.height - PAD * 2 - 1;
+
+  if (family === 'small') {
+    addTile(w, symbol, quote.q, quote.err, innerW, innerH);
+  } else if (family === 'medium') {
+    const gap = 14;
+    const tileW = Math.floor((innerW - gap) * 0.48);
     const line = w.addStack();
-    for (let c = 0; c < cols; c++) {
-      const item = results[r * cols + c];
-      if (c > 0) line.addSpacer(gap);
-      if (item) addTile(line, item.s, item.q, item.err, tileW, tileH);
-      else line.addSpacer(tileW);
-    }
-    if (r < rowsN - 1) w.addSpacer(gap);
+    addTile(line, symbol, quote.q, quote.err, tileW, innerH);
+    line.addSpacer(gap);
+    addNews(line, news.n, innerW - tileW - gap, innerH, 12, news.err);
+  } else {
+    const gap = 12;
+    const tileH = Math.round(innerH * 0.46);
+    addTile(w, symbol, quote.q, quote.err, innerW, tileH);
+    w.addSpacer(gap);
+    addNews(w, news.n, innerW, innerH - tileH - gap, 14, news.err);
   }
   return w;
 }
 
 const widget = await build();
 if (config.runsInWidget) Script.setWidget(widget);
-else await widget.presentSmall(); // preview when run inside the Scriptable app
+else await widget.presentMedium(); // preview when run inside the Scriptable app
 Script.complete();

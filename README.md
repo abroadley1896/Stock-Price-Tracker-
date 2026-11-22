@@ -20,7 +20,9 @@ It works for US stocks (`AAPL`, `TSLA`) and UK stocks (`VOD.L`, `LLOY.L`, which 
 
 ## Home screen widget (iPhone)
 
-Web apps can't make iPhone widgets, so there's a script for the free **Scriptable** app in `widget/scriptable-widget.js`. It shows price, open, close and after-hours. Setup steps are at the top of the file.
+Web apps can't make iPhone widgets, so there's a widget for the free **Scriptable** app. One stock per widget: small shows the stock, medium and large add the latest headlines (tap one to read it).
+
+Paste `widget/loader.js` into Scriptable once. It downloads the latest `widget/scriptable-widget.js` from this site every refresh, so design updates arrive automatically. Set the widget's Parameter to one ticker, e.g. `ANT`.
 
 ## Using it
 
